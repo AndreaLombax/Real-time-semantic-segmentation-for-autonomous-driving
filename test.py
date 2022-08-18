@@ -1,17 +1,15 @@
 from codecs import ignore_errors
 from modelv2.Segformer_model import SegformerForSemanticSegmentation
+from transformers import SegformerFeatureExtractor
 from CityscapesDataset import CityscapesDataset
 from ApolloScapeDataset import ApolloScapeDataset
 from torch.utils.data import DataLoader
 from configparser import ConfigParser
 import torch
-from sklearn.metrics import jaccard_score
 from torchmetrics import JaccardIndex
-from utils import bcolors
 import tqdm
-from numpy import mean
 import numpy as np
-import matplotlib.pyplot as plt
+import argparse
 
 from datasets import load_metric
 # assign gpu devices
@@ -20,8 +18,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def test(model: torch.nn.Module, test_loader, num_labels):
 
     jaccards = []
-    jaccard = JaccardIndex(num_classes=num_labels, average="macro", ignore_index=255)
+    jaccard = JaccardIndex(num_classes=num_labels, average="weighted", ignore_index=255)
     metric = load_metric("mean_iou")
+
     print("-> Testing started:")
     with torch.no_grad():
         model.eval()
@@ -40,23 +39,23 @@ def test(model: torch.nn.Module, test_loader, num_labels):
             # Second, apply argmax on the class dimension
             predicted = upsampled_logits.argmax(dim=1)
 
-            mask = (labels != 255) # we don't include the background class in the accuracy calculation
+            #mask = (labels != 255) # we don't include the background class in the accuracy calculation
             pred_labels = predicted.detach().cpu()
             true_labels = labels.detach().cpu()
-
+            
             # note that the metric expects predictions + labels as numpy arrays
             metric.add_batch(predictions=pred_labels.numpy(), references=true_labels.numpy())
             
-            #jaccards.append(jaccard_score(y_pred=pred_labels.numpy(), y_true=true_labels.numpy(), average='macro'))
-            #jaccards.append(jaccard(pred_labels[mask], true_labels[mask]))
+            jaccards.append(jaccard(pred_labels, true_labels))
             
-        #meanIoU = mean(jaccards)
+        meanIoU = np.mean(jaccards)
         metrics = metric.compute(num_labels=num_labels, ignore_index=255,
-                                   reduce_labels=False)# we've already reduced the labels before
+                                reduce_labels=False)# we've already reduced the labels before
 
-        print("Mean_iou: ", metrics["mean_iou"])
+        print(metrics)
+        print("\n\nMean_iou: ", metrics["mean_iou"])
         print("Mean accuracy: ", metrics["mean_accuracy"])
-        #print("Jaccard index (mIoU): ", meanIoU)
+        print("Jaccard index (mIoU): ", meanIoU)
 
                 
 if __name__ == "__main__":
@@ -65,15 +64,27 @@ if __name__ == "__main__":
     ###############################################
     ####### Getting configuration settings ########
     config = ConfigParser()
+    parser = argparse.ArgumentParser()
+    
     config.read('/home/a.lombardi/my_segformer/configuration.ini')
     BATCH_SIZE = config.getint('TRAINING', 'batch_size')
-    MODEL = config.get('MODEL', 'model_to_test')
+
+    parser.add_argument('-pw', '--pretrained_weights', type=str, 
+                    help="path or str of the pretrained model weights")
+    parser.add_argument("-fe", "--feature_extractor", type=str, default=0,
+                    choices=["0","1","2","3","4","5"],
+                    help="type of nvidia/mit-bX pretrained weights of the feature extractor")
+    args = parser.parse_args()
+    
+    MODEL = args.pretrained_weights
     ###############################################
 
     ###############################################
     ############ Preparing the dataset ############
-    #test_set = CityscapesDataset(path='/home/a.lombardi/CityScapes_Dataset', split='val', transforms=False)
-    test_set = ApolloScapeDataset("/home/a.lombardi/ApolloScape_Dataset", split='test', transforms=None)
+    feature_extractor = SegformerFeatureExtractor.from_pretrained("nvidia/mit-b"+args.feature_extractor)
+
+    test_set = CityscapesDataset(path='/home/a.lombardi/CityScapes_Dataset', feature_extractor=feature_extractor, split='val', transforms=False)
+    #test_set = ApolloScapeDataset("/home/a.lombardi/ApolloScape_Dataset", split='test', transforms=None)
     test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
     ###############################################
 
@@ -95,6 +106,7 @@ if __name__ == "__main__":
         print("Using the model on CPU\n")
     ###############################################
 
+    print(f'\nTesting the following model:\n{MODEL}\n')
     test(model,
         test_loader=test_loader, 
         num_labels=num_labels)
