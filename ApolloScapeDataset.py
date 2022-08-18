@@ -1,25 +1,19 @@
 import random
 
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-""" Zpark labels"""
-
 from collections import namedtuple
 
 from transformers import SegformerFeatureExtractor
 from torch.utils.data import Dataset
 import os
-import cv2
 import torchvision.transforms.functional as TF
-
+from PIL import Image
 from torchvision import transforms as tfs
 import numpy as np
 
 class ApolloScapeDataset(Dataset):
     """KITTI semantic segmentation dataset."""
 
-    def __init__(self, root_dir:str, split:str='train', transforms=None):
+    def __init__(self, root_dir:str, split:str='train', transforms:bool=False):
         """
         Args:
             root_dir (string): Root directory of the dataset containing the images + annotations.
@@ -139,23 +133,44 @@ class ApolloScapeDataset(Dataset):
     def __len__(self):
         return len(self.images)
 
+    def __transform__(self, image, mask):
+        
+        # Resize
+        #resize = tfs.Resize(size=(1024, 512))
+        #image = resize(image)
+        #segmentation_map = resize(segmentation_map)
+
+        # Random crop
+        i, j, h, w = tfs.RandomCrop.get_params(
+            image, output_size=(1024,1024))
+        image = TF.crop(image, i, j, h, w)
+        mask = TF.crop(mask, i, j, h, w)
+
+        # Random horizontal flipping
+        if random.random() > 0.5:
+            image = TF.hflip(image)
+            mask = TF.hflip(mask)
+
+        # Transform to tensor
+        #image = TF.to_tensor(image)
+        #mask = TF.to_tensor(mask)
+        return image, mask
+
     def __getitem__(self, idx):
+
+        image = Image.open(os.path.join(self.img_dir, self.images[idx])).convert("RGB")
         
-        image = cv2.imread(os.path.join(self.img_dir, self.images[idx]), cv2.IMREAD_COLOR)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
-        segmentation_map = cv2.imread(os.path.join(self.ann_dir, self.annotations[idx]), cv2.IMREAD_GRAYSCALE)
+        # Use train ids for a possible cross validation
+        segmentation_map = Image.open(os.path.join(self.ann_dir, self.annotations[idx])).convert("L")
         for l in self.labels:
             segmentation_map = np.where(segmentation_map!=l.id, segmentation_map, l.trainId).astype(np.uint8)
-        #segmentation_map = cv2.cvtColor(segmentation_map, cv2.COLOR_BGR2GRAY)
-    
-        #image = Image.open()
-        #segmentation_map = Image.open()
 
-        if self.transforms is not None:
-            augmented = self.transforms(image=image, mask=segmentation_map)
-            # randomly crop + pad both image and segmentation map to same size
-            encoded_inputs = self.feature_extractor(augmented['image'], augmented['mask'], return_tensors="pt")
+        if self.transforms:
+            # Return to PIL Image to apply transformations
+            segmentation_map = Image.fromarray(segmentation_map).convert("L")
+        
+            image, segmentation_map = self.__transform__(image, segmentation_map)
+            encoded_inputs = self.feature_extractor(images=image, segmentation_maps=segmentation_map, return_tensors="pt")
         else:
             encoded_inputs = self.feature_extractor(image, segmentation_map, return_tensors="pt")
 
@@ -164,8 +179,7 @@ class ApolloScapeDataset(Dataset):
 
         return encoded_inputs
 '''
-ds = ApolloScapeDataset("/home/a.lombardi/ApolloScape_Dataset", split='test', transforms=None)
-print(len(ds.labels))
+ds = ApolloScapeDataset("/home/a.lombardi/ApolloScape_Dataset", split='test', transforms=True)
 
 prova = ds[55]
 
