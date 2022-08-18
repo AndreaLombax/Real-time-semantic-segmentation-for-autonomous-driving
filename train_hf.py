@@ -1,14 +1,17 @@
 #from transformers import SegformerForSemanticSegmentation
 from modelv2.Segformer_model import SegformerForSemanticSegmentation
+from transformers import SegformerFeatureExtractor
 from CityscapesDataset import CityscapesDataset
 from ApolloScapeDataset import ApolloScapeDataset
 from torch.utils.data import DataLoader
 from configparser import ConfigParser
-from math import ceil, inf
+from math import inf
 import torch
 from sklearn.metrics import accuracy_score
 from utils import bcolors
 from torchvision import transforms as tfs
+import argparse
+
 from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
 writer.flush()
@@ -143,27 +146,40 @@ if __name__ == "__main__":
     ###############################################
     ####### Getting configuration settings ########
     config = ConfigParser()
+    parser = argparse.ArgumentParser()
+
     config.read('/home/a.lombardi/my_segformer/configuration.ini')
     BATCH_SIZE = config.getint('TRAINING', 'batch_size')
-    PRETRAINED_WEIGHTS = config.get('MODEL', 'pretrained_type')
+    LR = config.getfloat('TRAINING', 'learning_rate')
+
+    parser.add_argument("-pw", "--pretrained_weights", type=str, 
+                    help="path or str of the pretrained model weights")
+    parser.add_argument("-fe", "--feature_extractor", type=str, default=0,
+                    choices=["0","1","2","3","4","5"],
+                    help="type of nvidia/mit-bX pretrained weights of the feature extractor")
+    parser.add_argument('-lr', '--learning_rate', type=float, default=0.00006,
+                    help="learning rate for AdamW optimizer")
+    args = parser.parse_args()
+    
+    PRETRAINED_WEIGHTS = args.pretrained_weights
     ###############################################
 
     ###############################################
     ############ Preparing the dataset ############
-
     transforms = tfs.Compose([
         tfs.RandomHorizontalFlip(p=0.5),
         #aug.CenterCrop(1024,1024, always_apply=False, p=0.5),
         tfs.RandomCrop(1024),
         ])
+
+    feature_extractor = SegformerFeatureExtractor.from_pretrained("nvidia/mit-b"+args.feature_extractor) #SegformerFeatureExtractor(align=False, reduce_zero_label=False)
     
-    #train_set = CityscapesDataset(path='/home/a.lombardi/CityScapes_Dataset', split='train', transforms=True)
-    #val_set = CityscapesDataset(path='/home/a.lombardi/CityScapes_Dataset', split='val', transforms=False)
+    # Choose one of the dataset or load your custom one
+    #train_set = CityscapesDataset(path='/home/a.lombardi/CityScapes_Dataset', feature_extractor=feature_extractor, split='train', transforms=True)
+    #val_set = CityscapesDataset(path='/home/a.lombardi/CityScapes_Dataset', feature_extractor=feature_extractor, split='val', transforms=False)
     
-    train_set = ApolloScapeDataset("/home/a.lombardi/ApolloScape_Dataset", split='train', transforms=None)
-    print(f"trainset len {len(train_set)}")
-    val_set = ApolloScapeDataset("/home/a.lombardi/ApolloScape_Dataset", split='val', transforms=None)
-    print(f"valset len {len(val_set)}")
+    train_set = ApolloScapeDataset("/home/a.lombardi/ApolloScape_Dataset", split='train', transforms=True)
+    val_set = ApolloScapeDataset("/home/a.lombardi/ApolloScape_Dataset", split='val', transforms=False)
 
     train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
@@ -191,9 +207,9 @@ if __name__ == "__main__":
     # The loss is already been used in the model decode head as the output is given
     criterion = torch.nn.CrossEntropyLoss()
     #criterion = 
-    optimizer = torch.optim.AdamW(model.parameters(),lr=0.00006) # Adam, AdamW or RMSprop
+    optimizer = torch.optim.AdamW(model.parameters(),lr=args.learning_rate) # Adam, AdamW or RMSprop
 
-    training(model=model, model_type="b1ApolloMODIFIED", 
+    training(model=model, model_type="b1ApolloAug", 
             train_loader=train_loader, val_loader=val_loader,
             criterion=None, optimizer=optimizer, epochs=250, print_step=1)
 
