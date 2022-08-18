@@ -2,10 +2,8 @@ from transformers import SegformerFeatureExtractor
 from modelv2.Segformer_model import SegformerForSemanticSegmentation
 from CityscapesDataset import CityscapesDataset
 from ApolloScapeDataset import ApolloScapeDataset
-from torch.utils.data import DataLoader
-from configparser import ConfigParser
 import torch
-from utils import bcolors
+import argparse
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
@@ -54,15 +52,19 @@ if __name__ == "__main__":
 
     ###############################################
     ####### Getting configuration settings ########
-    config = ConfigParser()
-    config.read('/home/a.lombardi/my_segformer/configuration.ini')
-    BATCH_SIZE = config.getint('TRAINING', 'batch_size')
-    PRETRAINED_WEIGHTS = config.get('MODEL', 'model_to_test')
+    parser = argparse.ArgumentParser()
+    
+    parser.add_argument('-pw', '--pretrained_weights', type=str, 
+                    help="path or str of the pretrained model weights")
+    parser.add_argument("-fe", "--feature_extractor", type=str, default=0,
+                    choices=["0","1","2","3","4","5"],
+                    help="type of nvidia/mit-bX pretrained weights of the feature extractor")
+    args = parser.parse_args()
     ###############################################
 
     ###############################################
     ############## Preparing the model ############
-    model = SegformerForSemanticSegmentation.from_pretrained(PRETRAINED_WEIGHTS, # Encoder pretrained weights
+    model = SegformerForSemanticSegmentation.from_pretrained(args.pretrained_weights, # Encoder pretrained weights
                                                         ignore_mismatched_sizes=True,
                                                          #num_labels=len(test_set.labels), 
                                                          #id2label=test_set.get_id2label(), 
@@ -75,8 +77,9 @@ if __name__ == "__main__":
     else:
         print("Using the model on CPU\n")
     ###############################################
+    feature_extractor = SegformerFeatureExtractor.from_pretrained("nvidia/mit-b"+args.feature_extractor)
 
     image_path = "/home/a.lombardi/CityScapes_Dataset/leftImg8bit/val/munster/munster_000069_000019_leftImg8bit.png"
-    label2color = CityscapesDataset(path='/home/a.lombardi/CityScapes_Dataset', split='test').get_label2color()
+    label2color = CityscapesDataset(path='/home/a.lombardi/CityScapes_Dataset', feature_extractor=feature_extractor,split='test').get_label2color()
     #label2color = ApolloScapeDataset("/home/a.lombardi/ApolloScape_Dataset", split='test', transforms=None).get_label2color()
     evaluateOnImage(model=model, image_path=image_path, label2color=label2color)
