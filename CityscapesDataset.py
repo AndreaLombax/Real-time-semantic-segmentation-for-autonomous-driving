@@ -1,6 +1,5 @@
 import random
 from torch import IntTensor
-from transformers import SegformerFeatureExtractor
 from torch.utils.data import Dataset
 from torchvision.datasets import Cityscapes
 import torchvision.transforms.functional as TF
@@ -10,7 +9,7 @@ from torchvision import transforms as tfs
 from collections import namedtuple
 
 class CityscapesDataset(Dataset):
-    def __init__(self, path: str, split: str, transforms: bool=False, mode='fine', target_type='semantic'):
+    def __init__(self, path: str, feature_extractor, split: str, transforms: bool=False, mode='fine', target_type='semantic'):
         """
         Args:
             root_dir (string): Root directory of the dataset.
@@ -20,7 +19,7 @@ class CityscapesDataset(Dataset):
         """
         self.split = split
         self.dataset = Cityscapes(path, split=split, mode=mode, target_type=target_type)
-        self.feature_extractor = SegformerFeatureExtractor.from_pretrained("nvidia/segformer-b0-finetuned-cityscapes-512-1024") #SegformerFeatureExtractor(align=False, reduce_zero_label=False)
+        self.feature_extractor = feature_extractor
         self.transforms = transforms
 
 
@@ -116,13 +115,13 @@ class CityscapesDataset(Dataset):
     def __transform__(self, image, mask):
         
         # Resize
-        #resize = tfs.Resize(size=(512, 1024))
+        #resize = tfs.Resize(size=(1024, 512))
         #image = resize(image)
         #segmentation_map = resize(segmentation_map)
 
         # Random crop
         i, j, h, w = tfs.RandomCrop.get_params(
-            image, output_size=(512,512))
+            image, output_size=(1024,1024))
         image = TF.crop(image, i, j, h, w)
         mask = TF.crop(mask, i, j, h, w)
 
