@@ -1,5 +1,5 @@
 from transformers import SegformerPreTrainedModel, SegformerConfig
-from torch import nn, cat, Tensor
+from torch import nn, cat, Tensor, empty
 import math
 
 class SegformerMLP(nn.Module):
@@ -55,6 +55,7 @@ class SegformerSkipDecodeHead(SegformerPreTrainedModel):
         batch_size = encoder_hidden_states[-1].shape[0]
         
         all_hidden_states = ()
+        fused_hidden_states = ()
         # MY VERSION
               
         #reversed(encoder_hidden_states)
@@ -84,7 +85,6 @@ class SegformerSkipDecodeHead(SegformerPreTrainedModel):
                 # # 1. First, multi-level features Fi from the MiT encoder goes through an MLP layer to unify the channel dimension
                 height, width = encoder_hidden_state.shape[2], encoder_hidden_state.shape[3]
                 encoder_hidden_state = mlp(encoder_hidden_state)
-                
                 encoder_hidden_state = encoder_hidden_state.permute(0, 2, 1)
                 encoder_hidden_state = encoder_hidden_state.reshape(batch_size, -1, height, width)
                 # 2. Features are upsampled to the previous encoder block size
@@ -97,7 +97,6 @@ class SegformerSkipDecodeHead(SegformerPreTrainedModel):
                 # 1. First, multi-level features Fi from the MiT encoder goes through an MLP layer to unify the channel dimension
                 height, width = encoder_hidden_state.shape[2], encoder_hidden_state.shape[3]
                 encoder_hidden_state = mlp(encoder_hidden_state)
-                
                 encoder_hidden_state = encoder_hidden_state.permute(0, 2, 1)
                 encoder_hidden_state = encoder_hidden_state.reshape(batch_size, -1, height, width)
                 
@@ -107,8 +106,7 @@ class SegformerSkipDecodeHead(SegformerPreTrainedModel):
                 #print(all_hidden_states[0].shape)
                 #print(all_hidden_states[1].shape)
                 #fuse the concatenated features
-                hidden_states = self.linear_fuse_2_hidden_states(cat(all_hidden_states[::-1], dim=1))
-                fused_hidden_states = hidden_states
+                fused_hidden_states = self.linear_fuse_2_hidden_states(cat(all_hidden_states[::-1], dim=1))
 
                 # print("fused: ", fused_hidden_states.shape) # the shape is the same, e.g. 
                                                             # [8, 256, 32, 32] fused with [8, 256, 32, 32]
@@ -117,21 +115,17 @@ class SegformerSkipDecodeHead(SegformerPreTrainedModel):
 
                 if idx!=0:
                     # If it is not the first hidden_state (from the first encoder block)
-                    #print(idx)
-                    # 2. Features are upsampled to the previous encoder block size
-                    # UPSAMPLE THE FUSED HIDDEN STATE
+                    # Features are upsampled to the previous encoder block size to unify on the next iteration
                     upsampled_hidden_states = nn.functional.interpolate(
                         fused_hidden_states, size=encoder_hidden_states[idx-1].size()[2:], mode="bilinear", align_corners=False
                     )
                     #print("upsampled: ", upsampled_hidden_states.shape)
                     all_hidden_states = ()
-                    # We just upsample to unify on the next iteration
                     all_hidden_states += (upsampled_hidden_states,)
 
         fused_hidden_states = self.batch_norm(fused_hidden_states)
         fused_hidden_states = self.activation(fused_hidden_states)
         fused_hidden_states = self.dropout(fused_hidden_states)
         logits = self.classifier(fused_hidden_states)
-        
         
         return logits
